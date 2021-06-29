@@ -18,7 +18,6 @@ use BenchPostprocess qw(
 	calc_aggregate_metrics create_graph_hash create_uid
 	convert_samples_hash_to_array get_label get_mean_hash);
 use File::Basename;
-use Data::Dumper;
 use JSON;
 
 my $script_name = basename($0);
@@ -216,9 +215,6 @@ my $json_result = from_json($json_text);
 $json_text = "";  # Release this huge string to relieve my IDE's debugger
 my %last_trial = %{ $$json_result{'trials'}[-1] };
 
-#print Dumper $json_result;
-#exit;
-
 foreach my $trial_param ( keys %{ $last_trial{'trial_params'} } ) {
 	if ( $trial_param eq 'output_dir' ) {
 		# The output_dir parameter is different per sample; we explicitly omit it
@@ -226,38 +222,45 @@ foreach my $trial_param ( keys %{ $last_trial{'trial_params'} } ) {
 		# same sample data sets together.
 		next;
 	}
-	if ( $last_trial{'trial_params'}{$trial_param} ) {
+	if (defined($last_trial{'trial_params'}{$trial_param})) {
 		$config{$trial_param} = $last_trial{'trial_params'}{$trial_param}
 	}
 }
-$config{get_label('uid_label')} = sprintf("%s-%s", $benchmark_name, $benchmark_version);
+
+my $uid_label = sprintf("%s-%s", $benchmark_name, $benchmark_version);
 if (exists($config{'traffic_generator'}) && defined($config{'traffic_generator'})) {
 	my $traffic_generator = $config{'traffic_generator'};
 	if ($traffic_generator eq "trex-txrx-profile" and $traffic_profile_arg ne "") {
 		$config{'traffic_profile_arg'} = $traffic_profile_arg;
-		$config{get_label('uid_label')} .= "-traffic_profile:%traffic_profile_arg%";
+		$uid_label .= "-traffic_profile:%traffic_profile_arg%";
 	} else {
 		$config{'rate_arg'} = $rate_arg;
-		$config{get_label('uid_label')} .= "-rate:%rate_arg%";
+		$uid_label .= "-rate:%rate_arg%";
+		$uid_label .= "-traffic_direction:";
 		if (exists($config{'traffic_direction'}) && defined($config{'traffic_direction'})) {
-			$config{get_label('uid_label')} .= "-traffic_direction:%traffic_direction%";
+			$uid_label .= "%traffic_direction%";
 		} else {
-			$config{get_label('uid_label')} .= "-traffic_direction:MISSING";
+			$uid_label .= "MISSING";
 		}
 		$config{'frame_size'} = int $frame_size_arg;
-		$config{get_label('uid_label')} .= "-frame_size:%frame_size%";
+		$uid_label .= "-frame_size:%frame_size%";
 		$config{'num_flows'} = int $num_flows_arg;
-		$config{get_label('uid_label')} .= "-num_flows:%num_flows%";
+		$uid_label .= "-num_flows:%num_flows%";
 	}
 } else {
-	$config{get_label('uid_label')} .= "-rate:MISSING";
-	$config{get_label('uid_label')} .= "-traffic_direction:MISSING";
-	$config{get_label('uid_label')} .= "-frame_size:MISSING";
-	$config{get_label('uid_label')} .= "-num_flows:MISSING";
+	$uid_label .= "-rate:MISSING";
+	$uid_label .= "-traffic_direction:MISSING";
+	$uid_label .= "-frame_size:MISSING";
+	$uid_label .= "-num_flows:MISSING";
 }
+$uid_label .= "-pct_drop:";
 if (exists($config{'max_loss_pct'}) && defined($config{'max_loss_pct'})) {
-	$config{get_label('uid_label')} .= "-pct_drop:%max_loss_pct%";
+	$uid_label .= "%max_loss_pct%";
+} else {
+	$uid_label .= "MISSING";
 }
+$config{get_label('uid_label')} = $uid_label;
+
 push(@benchmark, \%config);
 
 foreach my $dev_pair ( @{ $last_trial{'trial_params'}{'test_dev_pairs'} } ) {
@@ -291,8 +294,6 @@ foreach my $dev_pair ( @{ $last_trial{'trial_params'}{'test_dev_pairs'} } ) {
 }
 
 if (exists($last_trial{'profiler-data'}) && defined($last_trial{'profiler-data'})) {
-	#print Dumper $last_trial{'profiler-data'};
-
 	my @profiler_metrics = (
 		{ 'category'       => 'global',
 			'js_label'     => 'Global PPS',
@@ -845,7 +846,7 @@ gen_data(\%graph, \%graph_type, \%graph_threshold, $dir, 1);
 
 convert_samples_hash_to_array(\%workload);
 
-$json_text   = to_json( \%workload, { ascii => 1, pretty => 1 } );
+$json_text = to_json( \%workload, { ascii => 1, pretty => 1 } );
 open(JSON, ">$json_file") || die "$script: could not open file $json_file: $!\n";
 print JSON $json_text;
 close(JSON);
