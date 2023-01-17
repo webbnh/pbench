@@ -11,12 +11,8 @@ pipeline {
         TERM='dumb'
 
         // Configuration for remote container registries
-        PODMAN_INTERNAL=credentials('12b404ca-3036-4960-9929-979148b9e49a')
-        PODMAN_EXTERNAL=credentials('87ad2797-02eb-464f-989f-8ab78d63cdf3')
-        PB_INTERNAL_CONTAINER_REG=credentials('c3e2d737-0e56-4c1e-a945-d86bc644384c')
-        PB_EXTERNAL_CONTAINER_REG=credentials('24a93506-ecd6-403a-b4f0-386f9cc943e9')
         PB_ORG_NAME="pbench"
-        PB_SERVER_IMAGE_NAME="pbench-server-ci"
+
         // If we are executing for a PR, as opposed to executing for a branch
         // like `main`, the CHANGE_ID will be defined to the PR number.  If it
         // is defined we'll use its value for the container image tag;
@@ -44,14 +40,17 @@ pipeline {
         stage('Build the Pbench Server Container') {
             environment {
                 KEYCLOAK_CLIENT_SECRET=credentials('5cf0304d-8a00-48a4-ade5-9f59cb37ba68')
+                PODMAN_SERVER=credentials('12b404ca-3036-4960-9929-979148b9e49a')
+                PB_SERVER_CONTAINER_REG=credentials('c3e2d737-0e56-4c1e-a945-d86bc644384c')
+                PB_SERVER_IMAGE_NAME="pbench-server-ci"
                 PB_SERVER_IMAGE_TAG="${PB_IMAGE_TAG}"
                 RPM_PATH="${WORKSPACE_TMP}/rpmbuild/RPMS/noarch/pbench-server-*.rpm"
             }
             steps {
-                sh 'buildah login -u="${PODMAN_INTERNAL_USR}" -p="${PODMAN_INTERNAL_PSW}" ${PB_INTERNAL_CONTAINER_REG}'
+                sh 'buildah login -u="${PODMAN_SERVER_USR}" -p="${PODMAN_SERVER_PSW}" ${PB_SERVER_CONTAINER_REG}'
                 sh 'bash -ex ./server/pbenchinacan/container-build-ci.sh'
-                sh 'buildah push localhost/pbench-server:${PB_IMAGE_TAG} ${PB_INTERNAL_CONTAINER_REG}/${PB_ORG_NAME}/pbench-server:${PB_IMAGE_TAG}'
-                sh 'buildah push localhost/${PB_SERVER_IMAGE_NAME}:${PB_IMAGE_TAG} ${PB_INTERNAL_CONTAINER_REG}/${PB_ORG_NAME}/${PB_SERVER_IMAGE_NAME}:${PB_IMAGE_TAG}'
+                sh 'buildah push localhost/pbench-server:${PB_IMAGE_TAG} ${PB_SERVER_CONTAINER_REG}/${PB_ORG_NAME}/pbench-server:${PB_IMAGE_TAG}'
+                sh 'buildah push localhost/${PB_SERVER_IMAGE_NAME}:${PB_IMAGE_TAG} ${PB_SERVER_CONTAINER_REG}/${PB_ORG_NAME}/${PB_SERVER_IMAGE_NAME}:${PB_IMAGE_TAG}'
             }
         }
         stage('Build the Pbench Agent Containers') {
@@ -59,20 +58,14 @@ pipeline {
                 // If CHANGE_ID is defined, then we are building a PR, so use
                 // the internal container registry; otherwise, we are building
                 // a branch (like `main`), so use the external registry.
-                PB_AGENT_CONTAINER_REG="${env.CHANGE_ID ? env.PB_INTERNAL_CONTAINER_REG : env.PB_EXTERNAL_CONTAINER_REG}"
+                PB_AGENT_CONTAINER_REG=credentials('24a93506-ecd6-403a-b4f0-386f9cc943e9')
+                PODMAN_AGENT=credentials('87ad2797-02eb-464f-989f-8ab78d63cdf3')
                 PB_AGENT_DISTRO="fedora-36"
             }
             stages {
-                stage('Login to external container registry') {
-                    when { equals expected: env.PB_EXTERNAL_CONTAINER_REG, actual: env.PB_AGENT_CONTAINER_REG }
+                stage('Login to agent container registry') {
                     steps {
-                        sh 'buildah login -u="${PODMAN_EXTERNAL_USR}" -p="${PODMAN_EXTERNAL_PSW}" ${PB_EXTERNAL_CONTAINER_REG}'
-                    }
-                }
-                stage('Login to internal container registry') {
-                    when { equals expected: env.PB_INTERNAL_CONTAINER_REG, actual: env.PB_AGENT_CONTAINER_REG }
-                    steps {
-                        sh 'buildah login -u="${PODMAN_INTERNAL_USR}" -p="${PODMAN_INTERNAL_PSW}" ${PB_INTERNAL_CONTAINER_REG}'
+                        sh 'buildah login -u="${PODMAN_AGENT_USR}" -p="${PODMAN_AGENT_PSW}" ${PB_AGENT_CONTAINER_REG}'
                     }
                 }
                 stage('Do the build') {
@@ -86,7 +79,7 @@ pipeline {
         }
         stage('Deploy server and run functional tests') {
             environment {
-                PB_CONTAINER_REG="${PB_INTERNAL_CONTAINER_REG}"
+                PB_CONTAINER_REG="${PB_SERVER_CONTAINER_REG}"
                 PB_DASHBOARD_DIR="${WORKSPACE}/dashboard/build/"
                 PB_SERVER_IMAGE_TAG="${PB_IMAGE_TAG}"
             }
